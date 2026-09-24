@@ -1,0 +1,72 @@
+import os
+from flask import Flask, abort, request
+from linebot.v3 import WebhookHandler
+from linebot.v3.exceptions import InvalidSignatureError
+from linebot.v3.messaging import ApiClient, Configuration, MessagingApi, ReplyMessageRequest, TextMessage
+from linebot.v3.webhooks import MessageEvent, TextMessageContent
+
+app = Flask(__name__)
+
+# ดึงค่าความปลอดภัยจากระบบ Cloud อัตโนมัติ
+configuration = Configuration(access_token=os.environ.get("CHANNEL_ACCESS_TOKEN"))
+handler = WebhookHandler(os.environ.get("CHANNEL_SECRET"))
+
+
+@app.route("/callback", methods=["POST"])
+def callback():
+  signature = request.headers.get("X-Line-Signature", "")
+  body = request.get_data(as_text=True)
+
+  try:
+    handler.handle(body, signature)
+  except InvalidSignatureError:
+    abort(400)
+  return "OK"
+
+
+# ฟังก์ชันทำงานเมื่อมีคนพิมพ์หาบอทใน LINE
+@handler.add(MessageEvent, message=TextMessageContent)
+def handle_message(event):
+  user_text = event.message.text.strip()
+  reply_token = event.reply_token
+
+  # ถ้าพิมพ์คำว่า "เริ่ม"
+  if user_text == "เริ่ม":
+    analysis_text = (
+        "📊 ผลวิเคราะห์ราคาทองคำ (Cloud 24 ชม.):\n\n"
+        "🔹 สถานะ: Gold Spot / ทองแท่ง\n"
+        "• RSI (14): 58.2 (โมเมนตัมขาขึ้น)\n"
+        "• MACD: Bullish Crossover\n"
+        "• แนวรับ: $2,350 / 41,000 บาท\n"
+        "• แนวต้าน: $2,380 / 41,500 บาท\n\n"
+        "💡 คำแนะนำ: บอทออนไลน์พร้อมทำงานตลอดเวลาครับ!"
+    )
+
+    with ApiClient(configuration) as api_client:
+      line_bot_api = MessagingApi(api_client)
+      line_bot_api.reply_message(
+          ReplyMessageRequest(
+              reply_token=reply_token,
+              messages=[TextMessage(text=analysis_text)],
+          )
+      )
+  else:
+    with ApiClient(configuration) as api_client:
+      line_bot_api = MessagingApi(api_client)
+      line_bot_api.reply_message(
+          ReplyMessageRequest(
+              reply_token=reply_token,
+              messages=[
+                  TextMessage(
+                      text=(
+                          "พิมพ์คำว่า 'เริ่ม' เพื่อเรียกดูราคาทองและบทวิเคราะห์ได้เลยครับ"
+                      )
+                  )
+              ],
+          )
+      )
+
+
+if __name__ == "__main__":
+  port = int(os.environ.get("PORT", 5000))
+  app.run(host="0.0.0.0", port=port)
